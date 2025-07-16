@@ -92,7 +92,7 @@ app = FastAPI()
 # Add CORS middleware with settings that match frontend requirements
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*, http://localhost:3000"],  # Allow all origins or specify frontend URL
     allow_credentials=True,
     allow_methods=["*"],  
     allow_headers=["*"], 
@@ -183,8 +183,8 @@ async def generate_chat_responses(message: str, checkpoint_id: Optional[str] = N
     # Send an end event
     yield f"data: {{\"type\": \"end\"}}\n\n"
 
-@app.get("/chat_stream/{message}")
-async def chat_stream(message: str, checkpoint_id: Optional[str] = Query(None)):
+@app.get("/chat/{message}")
+async def chat(message: str, checkpoint_id: Optional[str] = Query(None)):
     return StreamingResponse(
         generate_chat_responses(message, checkpoint_id), 
         media_type="text/event-stream"
