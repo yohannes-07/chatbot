@@ -71,7 +71,7 @@ const Home = () => {
         ]);
 
         // Create URL with checkpoint ID if it exists
-        let url = `"http://localhost:8000/chat/${encodeURIComponent(userInput)}`;
+        let url = `http://localhost:8000/chat_stream/${encodeURIComponent(userInput)}`;
         if (checkpointId) {
           url += `?checkpoint_id=${encodeURIComponent(checkpointId)}`;
         }
@@ -104,49 +104,20 @@ const Home = () => {
                 )
               );
             }
-            else if (data.type === 'search_start') {
-              // Create search info with 'searching' stage
-              const newSearchInfo = {
-                stages: ['searching'],
-                query: data.query,
-                urls: []
+            else if (data.type === 'search_info') {
+              searchData = {
+                  stages: ['searching', 'reading'],
+                  query: data.query || "",
+                  urls: Array.isArray(data.urls) ? data.urls : JSON.parse(data.urls || '[]'),
               };
-              searchData = newSearchInfo;
-
-              // Update the AI message with search info
               setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiResponseId
-                    ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: false }
-                    : msg
-                )
-              );
-            }
-            else if (data.type === 'search_results') {
-              try {
-                // Parse URLs from search results
-                const urls = typeof data.urls === 'string' ? JSON.parse(data.urls) : data.urls;
-
-                // Update search info to add 'reading' stage (don't replace 'searching')
-                const newSearchInfo = {
-                  stages: searchData ? [...searchData.stages, 'reading'] : ['reading'],
-                  query: searchData?.query || "",
-                  urls: urls
-                };
-                searchData = newSearchInfo;
-
-                // Update the AI message with search info
-                setMessages(prev =>
                   prev.map(msg =>
-                    msg.id === aiResponseId
-                      ? { ...msg, content: streamedContent, searchInfo: newSearchInfo, isLoading: false }
-                      : msg
+                      msg.id === aiResponseId
+                          ? { ...msg, content: streamedContent, searchInfo: searchData, isLoading: true }
+                          : msg
                   )
-                );
-              } catch (err) {
-                console.error("Error parsing search results:", err);
-              }
-            }
+              );
+           }
             else if (data.type === 'search_error') {
               // Handle search error
               const newSearchInfo = {
