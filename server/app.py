@@ -1,8 +1,9 @@
 from typing import TypedDict, Annotated, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import add_messages, StateGraph, END
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage
+from langgraph.graph import add_messages, StateGraph, END
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage, AIMessage
 from dotenv import load_dotenv
 from langchain_community.tools.tavily_search import TavilySearchResults
 from fastapi import FastAPI, Query
@@ -26,8 +27,8 @@ search_tool = TavilySearchResults(
 
 tools = [search_tool]
 
-# llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
-llm = ChatGroq(model="llama-3.1-8b-instant")
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+# llm = ChatGroq(model="llama-3.1-8b-instant")
 
 llm_with_tools = llm.bind_tools(tools=tools)
 
@@ -66,7 +67,7 @@ async def tool_node(state):
             
             # Create a ToolMessage for this result
             tool_message = ToolMessage(
-                content=str(search_results),
+                content=json.dumps(search_results),
                 tool_call_id=tool_id,
                 name=tool_name
             )
@@ -92,7 +93,7 @@ app = FastAPI()
 # Add CORS middleware with settings that match frontend requirements
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*, http://localhost:3000"],  # Allow all origins or specify frontend URL
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],  
     allow_headers=["*"], 
@@ -102,6 +103,11 @@ app.add_middleware(
 def serialise_ai_message_chunk(chunk): 
     if(isinstance(chunk, AIMessageChunk)):
         return chunk.content
+    elif isinstance(chunk, list):
+        for message in chunk:
+            if isinstance(message, (AIMessage, AIMessageChunk)):
+                return message.content
+        raise TypeError("No AIMessage or AIMessageChunk found in the list")
     else:
         raise TypeError(
             f"Object of type {type(chunk).__name__} is not correctly formatted for serialisation"
@@ -144,47 +150,58 @@ async def generate_chat_responses(message: str, checkpoint_id: Optional[str] = N
 
     async for event in events:
         event_type = event["event"]
+        print(event_type)
+        print("----------------------------------------------------------------------------------")
+        print(event)
         
-        if event_type == "on_chat_model_stream":
-            chunk_content = serialise_ai_message_chunk(event["data"]["chunk"])
-            # Escape single quotes and newlines for safe JSON parsing
-            safe_content = chunk_content.replace("'", "\\'").replace("\n", "\\n")
+        if event_type == "on_chain_stream": 
             
-            yield f"data: {{\"type\": \"content\", \"content\": \"{safe_content}\"}}\n\n"
+            chunk_data = event["data"].get("chunk", {})
+            messages = chunk_data.get("messages", None)
+            if messages:
+                try:
+                    chunk_content = serialise_ai_message_chunk(messages)
+                    
+                    safe_content = chunk_content.replace('"', '\\"').replace("\n", "\\n")
+                    yield f"data: {{\"type\": \"content\", \"content\": \"{safe_content}\"}}\n\n"
+                except TypeError as e:
+                    print(f"Error serializing chunk: {e}")
             
-        elif event_type == "on_chat_model_end":
-            # Check if there are tool calls for search
-            tool_calls = event["data"]["output"].tool_calls if hasattr(event["data"]["output"], "tool_calls") else []
-            search_calls = [call for call in tool_calls if call["name"] == "tavily_search_results_json"]
+        elif event_type == "on_chain_end":
+            # Check for tool calls in the output
+            output = event["data"].get("output", {})
+            # Try to access messages to find tool calls
+            messages = output.get("messages", []) if isinstance(output, dict) else []
+            tool_calls = []
+            for msg in messages:
+                if isinstance(msg, AIMessage) and hasattr(msg, "tool_calls"):
+                    tool_calls.extend(msg.tool_calls)
+            
+            search_calls = [call for call in tool_calls if call.get("name") == "tavily_search_results_json"]
             
             if search_calls:
                 # Signal that a search is starting
                 search_query = search_calls[0]["args"].get("query", "")
                 # Escape quotes and special characters
-                safe_query = search_query.replace('"', '\\"').replace("'", "\\'").replace("\n", "\\n")
-                yield f"data: {{\"type\": \"search_start\", \"query\": \"{safe_query}\"}}\n\n"
-                
-        elif event_type == "on_tool_end" and event["name"] == "tavily_search_results_json":
-            # Search completed - send results or error
-            output = event["data"]["output"]
-            
-            # Check if output is a list 
-            if isinstance(output, list):
-                # Extract URLs from list of search results
+                safe_query = search_query.replace('"', '\\"').replace("\n", "\\n")
+
                 urls = []
-                for item in output:
-                    if isinstance(item, dict) and "url" in item:
-                        urls.append(item["url"])
-                
-                # Convert URLs to JSON and yield them
+                for msg in messages:
+                    if isinstance(msg, ToolMessage) and msg.name == "tavily_search_results_json":
+                        try:
+                            results = json.loads(msg.content)
+                            urls = [item["url"] for item in results if isinstance(item, dict) and "url" in item]
+                        except json.JSONDecodeError:
+                            print("Error decoding ToolMessage content")
                 urls_json = json.dumps(urls)
-                yield f"data: {{\"type\": \"search_results\", \"urls\": {urls_json}}}\n\n"
+
+                yield f"data: {{\"type\": \"search_info\", \"query\": \"{safe_query}\", \"urls\": {urls_json}}}\n\n"
     
     # Send an end event
     yield f"data: {{\"type\": \"end\"}}\n\n"
 
-@app.get("/chat/{message}")
-async def chat(message: str, checkpoint_id: Optional[str] = Query(None)):
+@app.get("/chat_stream/{message}")
+async def chat_stream(message: str, checkpoint_id: Optional[str] = Query(None)):
     return StreamingResponse(
         generate_chat_responses(message, checkpoint_id), 
         media_type="text/event-stream"
