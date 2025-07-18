@@ -6,7 +6,7 @@ const Header = () => {
 
             <div className="flex items-center relative">
                 {/* <div className="absolute -left-3 top-1/2 transform -translate-y-1/2 w-1.5 h-6 bg-[#3ABEFF] rounded-full opacity-50 shadow-lg"></div> */}
-                <span className="font-bold text-white text-xl tracking-tight">CHATBOT Made with Langgraph</span>
+                <span className="font-bold text-white text-xl tracking-tight">CHATBOT Made by Yohannes in collaboration with Langgraph😄</span>
             </div>
         </header>
     )

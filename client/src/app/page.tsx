@@ -71,7 +71,7 @@ const Home = () => {
         ]);
 
         // Create URL with checkpoint ID if it exists
-        let url = `http://localhost:8000/chat_stream/${encodeURIComponent(userInput)}`;
+        let url = `https://chatbot-latest-bfvp.onrender.com/chat_stream/${encodeURIComponent(userInput)}`;
         if (checkpointId) {
           url += `?checkpoint_id=${encodeURIComponent(checkpointId)}`;
         }
