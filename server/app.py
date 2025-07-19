@@ -150,9 +150,6 @@ async def generate_chat_responses(message: str, checkpoint_id: Optional[str] = N
 
     async for event in events:
         event_type = event["event"]
-        print(event_type)
-        print("----------------------------------------------------------------------------------")
-        print(event)
         
         if event_type == "on_chain_stream": 
             
@@ -168,6 +165,7 @@ async def generate_chat_responses(message: str, checkpoint_id: Optional[str] = N
                     print(f"Error serializing chunk: {e}")
             
         elif event_type == "on_chain_end":
+            print(event)
             # Check for tool calls in the output
             output = event["data"].get("output", {})
             # Try to access messages to find tool calls
@@ -181,7 +179,7 @@ async def generate_chat_responses(message: str, checkpoint_id: Optional[str] = N
             
             if search_calls:
                 # Signal that a search is starting
-                search_query = search_calls[0]["args"].get("query", "")
+                search_query = search_calls[-1]["args"].get("query", "")
                 # Escape quotes and special characters
                 safe_query = search_query.replace('"', '\\"').replace("\n", "\\n")
 
